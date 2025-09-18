@@ -71,7 +71,7 @@
   :group 'wall
   :safe t)
 
-(defcustom wall-message-prefix "[Wall-e]: "
+(defcustom wall-message-prefix "[Wall]: "
   "The message prefix."
   :type 'string
   :group 'wall
@@ -108,13 +108,13 @@ Default 10 minutes."
   :group 'wall
   :safe t)
 
-(defcustom wall-minor-mode-string "wall-e"
+(defcustom wall-minor-mode-string "wall"
   "String to be displayed in the mode-line."
   :type 'string
   :group 'wall
   :safe t)
 
-(defcustom wall-output-buffer-name "WALL-OUTPUT"
+(defcustom wall-output-buffer-name " *wall-output*"
   "Wall output buffer name."
   :type 'string
   :group 'wall
@@ -166,15 +166,11 @@ on/off.")
   '(wall-images-list wall-timer)
   "List of internal variables.")
 
-;;; MACROS
-
 (defmacro wall--debug-message (fmt &rest args)
   "Display a internal message at the bottom of the screen.
 See `message' for more information about FMT and ARGS arguments."
   `(when wall-debug-messages-flag
      (message (concat wall-message-prefix ,fmt) ,@args)))
-
-;;; UTILS (INTERNAL) FUNCTIONS
 
 (defun wall--set-images-list (&optional dir)
   "Initialize the wallpaper images list and its length.
@@ -182,10 +178,11 @@ Use DIR (directory) if is set, otherwise the
 value of `wall-root-dir'."
   ;; set wallpaper images list.
   (setq wall-images-list
-        (directory-files-recursively (or dir wall-root-dir)
-                                     wall-images-ext-regexp
-                                     nil
-                                     t)))
+        (ignore-errors
+          (directory-files-recursively (or dir wall-root-dir)
+                                       wall-images-ext-regexp
+                                       nil
+                                       t))))
 
 (defun wall--add-images-list (dir)
   "Add wallpapers images list.
@@ -209,20 +206,17 @@ value of `wall-root-dir'."
   ;; restore index and length initial values
   (setq  wall-images-index 0))
 
-;;; SYSTEM PROCESS RELATED FUNCTIONS
-
 (defun wall--default-sentinel (process _event)
   "Wall default sentinel: PROCESS default EVENT handler function.
 This is also a template for another callbacks."
   (let ((status (process-status process)))
-    ;; handle process status (nothing for now)
-    (or
-     (eq status 'exit)
-     (eq status 'stop)
-     (eq status 'signal)
-     (eq status 'closed)
-     (eq status 'failed))
-    nil))
+    ;; handle process status
+    (or (eq status 'exit)
+        (eq status 'stop)
+        (eq status 'signal)
+        (eq status 'closed)
+        (eq status 'failed)
+        nil)))
 
 (defun wall--process-filter (process string)
   "Filter PROCESS output STRING."
@@ -240,7 +234,6 @@ This is also a template for another callbacks."
   "Start `wall-program' process passing its arguments PROGRAM-ARGS.
 Set a SENTINEL (callback) function to handle process
 signals and returns."
-  ;; create a buffer, if create buffer predicate is true
   (let* ((buffer (when wall-create-buffer-flag
                    (get-buffer-create wall-output-buffer-name)))
          (process (apply 'start-process
@@ -256,49 +249,39 @@ signals and returns."
     ;; set default filter
     (set-process-filter process 'wall--process-filter)))
 
-;;; TIMER INTERNALS
-
 (defun wall--reset-timer ()
   "Maybe reset the timer."
   (and wall-timer
        (wall-cancel-timer)
        (wall-start-timer)))
 
-;;; TIMER COMMANDS
-
 (defun wall-start-timer ()
   "Star wallpaper rotate timer."
   (interactive)
-  (cond
-   ;; verify if idle timer was already initialized
-   ((not (eq wall-timer nil))
-    (wall--debug-message "timer already on"))
-   ;; default: run-timer
-   (t
-    ;; set the idle auxiliary timer
-    (setq wall-timer
-          (run-with-timer wall-countdown
-                          wall-countdown
-                          'wall-set-next-wallpaper
-                          t)))))
+  (cond ((not (eq wall-timer nil))
+         (wall--debug-message "timer already on"))
+        (t (setq wall-timer
+                 (run-with-timer wall-countdown
+                                 wall-countdown
+                                 'wall-set-next-wallpaper
+                                 t)))))
 
 (defun wall-cancel-timer ()
   "Cancel the `wall-timer'."
   (interactive)
-  ;; remove time if was set
-  (if (not wall-timer) nil
-    ;; otherwise cancel the timer and update its value (nil)
-    (cancel-timer wall-timer)
-    (setq wall-timer nil))
+  (setq wall-timer
+        (prog1 nil
+          ;; remove time if was set
+          (when wall-timer (cancel-timer wall-timer))))
   ;; display timer debug message
   (wall--debug-message "timer off"))
 
 (defun wall-reset-timer ()
   "Reset the running timer."
   (interactive)
-  ;; reset timer
-  (wall-cancel-timer)
-  (wall-start-timer)
+  (mapc #'funcall
+        '(wall-cancel-timer
+          wall-start-timer))
   ;; show the current count down timer
   (wall--debug-message "current time %ds" wall-countdown))
 
@@ -314,8 +297,6 @@ asks for it."
   ;; reload timer
   (when (or arg (y-or-n-p "Reset timer? "))
     (wall-reset-timer)))
-
-;; WALLPAPER MANAGEMENT COMMANDS
 
 (defun wall--read-wallpaper ()
   "Read wallpaper file path.
@@ -361,10 +342,9 @@ for the programs arguments."
   ;; get current wallpaper
   (let ((wallpaper (or wall-current-wallpaper
                        (nth wall-images-index wall-images-list)))
-        ;; get the number as a integer
+        ;; get the number as an integer
         (num (string-to-number pos)))
     ;; set default position if none of the conditions meet
-    ;; if/else-if/else equivalent
     (or (string-equal pos "-0")
         (string-equal pos "+0")
         (not (equal num 0))
@@ -442,11 +422,9 @@ Report an error unless a valid docset is selected."
   "Add a WALLPAPER image in the `wall-images-list'."
   (interactive
    ;; get wallpaper (image file)
-   (list (read-file-name "Wallpaper: "
-                         wall-root-dir nil t)))
+   (list (read-file-name "Wallpaper: " wall-root-dir nil t)))
   ;; verify file extension
-  (when (string-match-p wall-images-ext-regexp
-                        wallpaper)
+  (when (string-match-p wall-images-ext-regexp wallpaper)
     (let ((wallpaper (expand-file-name wallpaper)))
       ;; add if its not already a member
       (when (not (member wallpaper wall-images-list))
@@ -454,8 +432,7 @@ Report an error unless a valid docset is selected."
 
 (defun wall-del-wallpaper (wallpaper)
   "Delete a WALLPAPER image from the `wall-images-list'."
-  (interactive
-   (list (wall--minibuffer-read "Image:" wall-images-list)))
+  (interactive (list (wall--minibuffer-read "Image:" wall-images-list)))
   ;; delete images from wallpapers image list
   (setq wall-images-list (delete wallpaper wall-images-list)))
 
@@ -504,8 +481,6 @@ If optional ARG is non-nil, force the activation of
   (interactive)
   (message "[Wall-e]: timer %s" (if wall-timer "on" "off")))
 
-;;; MINOR MODE DEFINITION
-
 ;;;###autoload
 (define-minor-mode wall-mode
   "Define wallpaper manager minor mode.
@@ -536,8 +511,6 @@ and disables it otherwise."
     (wall--clean-internal-vars)
     ;; set mode indicator: false (nil)
     (setq wall-mode nil))))
-
-;;; MINOR MODE ON/OFF COMMANDS
 
 ;;;###autoload
 (defun turn-on-wall-mode ()
